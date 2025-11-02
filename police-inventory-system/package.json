@@ -1,0 +1,31 @@
+{
+  "name": "police-inventory-system",
+  "version": "1.0.0",
+  "description": "Police Hardware Inventory Management System",
+  "scripts": {
+    "install-backend": "cd backend && npm install",
+    "install-frontend": "cd frontend && npm install",
+    "install-all": "npm run install-backend && npm run install-frontend",
+    "dev-backend": "cd backend && npm run dev",
+    "dev-frontend": "cd frontend && npm start",
+    "build-frontend": "cd frontend && npm run build",
+    "start-backend": "cd backend && npm start"
+  },
+  "keywords": [
+    "police",
+    "inventory",
+    "management",
+    "mern",
+    "react",
+    "node.js",
+    "mongodb"
+  ],
+  "author": "Police Department",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "devDependencies": {
+    "tailwindcss": "^4.1.16"
+  }
+}
