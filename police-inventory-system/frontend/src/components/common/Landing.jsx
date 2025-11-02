@@ -214,7 +214,7 @@ function Landing() {
                     <stop offset="100%" stopColor="#e0eaff" stopOpacity="1" />
                   </linearGradient>
                 </defs>
-                <rect width="500" height="350" fill="url(#heroGradient)" />
+                <rect width="500" height="350" rx="28" ry="28" fill="url(#heroGradient)" />
                 <g opacity="0.4">
                   <circle cx="100" cy="80" r="35" fill="#3b82f6" opacity="0.6"/>
                   <circle cx="350" cy="200" r="45" fill="#60a5fa" opacity="0.4"/>
@@ -222,9 +222,6 @@ function Landing() {
                 </g>
                 <text x="250" y="280" fontSize="26" fontWeight="600" fill="#1f2937" textAnchor="middle">
                   Police Equipment System
-                </text>
-                <text x="250" y="320" fontSize="14" fill="#6b7280" textAnchor="middle">
-                  Precision. Accountability. Security.
                 </text>
               </svg>
             </div>

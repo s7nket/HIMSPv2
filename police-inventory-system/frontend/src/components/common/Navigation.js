@@ -18,7 +18,7 @@ const Navigation = ({ activeSection, setActiveSection, sections }) => {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate('/');
   };
 
   const formatSectionName = (section) => {

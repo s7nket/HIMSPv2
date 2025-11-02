@@ -209,8 +209,8 @@ export const AuthProvider = ({ children }) => {
 
     // Force redirect to login page with a small delay
     setTimeout(() => {
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+      if (window.location.pathname !== '/') {
+        window.location.href = '/';
       }
       logoutInProgress.current = false;
     }, 500);
