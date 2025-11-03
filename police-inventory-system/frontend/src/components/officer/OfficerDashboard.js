@@ -121,8 +121,6 @@ const OfficerDashboardStats = ({ data }) => {
           title="Equipment Issued"
           value={data.stats.myIssuedEquipment}
           subtitle="Currently with me"
-          // UI/UX Enhancement: The 'purple' class is now mapped to
-          // the primary theme color in the CSS for consistency.
           color="purple"
         />
 
@@ -172,6 +170,8 @@ const MyRequests = () => {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [selectedRequestId, setSelectedRequestId] = useState(null);
 
   useEffect(() => {
     fetchRequests();
@@ -197,15 +197,18 @@ const MyRequests = () => {
     }
   };
 
-  const handleCancelRequest = async (requestId) => {
-    if (!window.confirm('Are you sure you want to cancel this request?')) {
-      return;
-    }
+  const handleCancelRequestClick = (requestId) => {
+    setSelectedRequestId(requestId);
+    setShowCancelModal(true);
+  };
 
+  const confirmCancelRequest = async () => {
     try {
-      await officerAPI.cancelRequest(requestId);
+      await officerAPI.cancelRequest(selectedRequestId);
       toast.success('Request cancelled successfully');
       fetchRequests();
+      setShowCancelModal(false);
+      setSelectedRequestId(null);
     } catch (error) {
       toast.error('Failed to cancel request');
       console.error('Cancel request error:', error);
@@ -222,75 +225,87 @@ const MyRequests = () => {
   }
 
   return (
-    /* UI/UX Enhancement: This component is now styled by .my-requests 
-       and features a subtle fade-in animation. */
-    <div className="my-requests">
-      {requests.length === 0 ? (
-        /* UI/UX Enhancement: .no-data is now a styled card */
-        <div className="no-data">
-          <h3>No Requests Found</h3>
-          <p>You haven't made any equipment requests yet.</p>
-        </div>
-      ) : (
-        <>
-          {/* UI/UX Enhancement: .requests-list and .request-card 
-              create a clean, modern card-based layout. */}
-          <div className="requests-list">
-            {requests.map((request) => (
-              <div key={request._id} className="request-card">
-                <div className="request-header">
-                  <div className="request-id">{request.requestId}</div>
-                  <span className={`status-badge status-${request.status.toLowerCase()}`}>
-                    {request.status}
-                  </span>
-                </div>
-
-                <div className="request-details">
-                  <h4>{request.equipmentId?.name}</h4>
-                  <p className="request-meta">
-                    {request.equipmentId?.model} • {request.requestType} • {new Date(request.createdAt).toLocaleDateString()}
-                  </p>
-                  <p className="request-reason">{request.reason}</p>
-                </div>
-
-                {request.status === 'Pending' && (
-                  <div className="request-actions">
-                    {/* UI/UX Enhancement: Buttons are styled by .btn */}
-                    <button
-                      onClick={() => handleCancelRequest(request._id)}
-                      className="btn btn-danger btn-sm"
-                    >
-                      Cancel Request
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
+    <>
+      {/* UI/UX Enhancement: This component is now styled by .my-requests 
+       and features a subtle fade-in animation. */}
+      <div className="my-requests">
+        {requests.length === 0 ? (
+          /* UI/UX Enhancement: .no-data is now a styled card */
+          <div className="no-data">
+            <h3>No Requests Found</h3>
+            <p>You haven't made any equipment requests yet.</p>
           </div>
+        ) : (
+          <>
+            {/* UI/UX Enhancement: .requests-list and .request-card 
+                create a clean, modern card-based layout. */}
+            <div className="requests-list">
+              {requests.map((request) => (
+                <div key={request._id} className="request-card">
+                  <div className="request-header">
+                    <div className="request-id">{request.requestId}</div>
+                    <span className={`status-badge status-${request.status.toLowerCase()}`}>
+                      {request.status}
+                    </span>
+                  </div>
 
-          {totalPages > 1 && (
-            /* UI/UX Enhancement: Pagination is styled by .pagination */
-            <div className="pagination">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-                className="btn btn-secondary"
-              >
-                Previous
-              </button>
-              <span>Page {currentPage} of {totalPages}</span>
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="btn btn-secondary"
-              >
-                Next
-              </button>
+                  <div className="request-details">
+                    <h4>{request.equipmentId?.name}</h4>
+                    <p className="request-meta">
+                      {request.equipmentId?.model} • {request.requestType} • {new Date(request.createdAt).toLocaleDateString()}
+                    </p>
+                    <p className="request-reason">{request.reason}</p>
+                  </div>
+
+                  {request.status === 'Pending' && (
+                    <div className="request-actions">
+                      {/* UI/UX Enhancement: Buttons are styled by .btn */}
+                      <button
+                        onClick={() => handleCancelRequestClick(request._id)}
+                        className="btn btn-danger btn-sm"
+                      >
+                        Cancel Request
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-          )}
-        </>
+
+            {totalPages > 1 && (
+              /* UI/UX Enhancement: Pagination is styled by .pagination */
+              <div className="pagination">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="btn btn-secondary"
+                >
+                  Previous
+                </button>
+                <span>Page {currentPage} of {totalPages}</span>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="btn btn-secondary"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {showCancelModal && (
+        <CancelConfirmationModal
+          onConfirm={confirmCancelRequest}
+          onCancel={() => {
+            setShowCancelModal(false);
+            setSelectedRequestId(null);
+          }}
+        />
       )}
-    </div>
+    </>
   );
 };
 
@@ -315,6 +330,30 @@ const formatSectionTitle = (section) => {
     myRequests: 'My Requests'
   };
   return titles[section] || section;
+};
+
+const CancelConfirmationModal = ({ onConfirm, onCancel }) => {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>Cancel Request</h3>
+          <button onClick={onCancel} className="close-btn">&times;</button>
+        </div>
+        <div className="modal-body">
+          <p>Are you sure you want to cancel this request?</p>
+        </div>
+        <div className="modal-actions">
+          <button onClick={onCancel} className="btn btn-secondary">
+            No
+          </button>
+          <button onClick={onConfirm} className="btn btn-danger">
+            Yes, Cancel Request
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default OfficerDashboard;
