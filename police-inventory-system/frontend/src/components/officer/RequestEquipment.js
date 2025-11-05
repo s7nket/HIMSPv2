@@ -2,60 +2,106 @@ import React, { useState, useEffect } from 'react';
 import { officerAPI } from '../../utils/api';
 import { toast } from 'react-toastify';
 
-/*
-  UI/UX Enhancement: This component is now styled by OfficerDashboard.css.
-  - The filters (.equipment-header) are cleaner.
-  - The equipment items are styled as modern cards (.equipment-card).
-  - The grid layout is responsive (.equipment-grid).
-  - The modal form is completely restyled for a professional look.
-*/
-
 const RequestEquipment = ({ onRequestSubmitted }) => {
-  const [equipment, setEquipment] = useState([]);
+  const [pools, setPools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showRequestModal, setShowRequestModal] = useState(false);
-  const [selectedEquipment, setSelectedEquipment] = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [selectedPool, setSelectedPool] = useState(null);
+  const [requestData, setRequestData] = useState({
+    purpose: '',
+    urgency: 'Normal',
+    expectedDuration: '',
+    notes: ''
+  });
   const [categoryFilter, setCategoryFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [categories, setCategories] = useState([]);
+
+  const categories = [
+    'Firearm', 'Ammunition', 'Protective Gear', 'Communication Device',
+    'Vehicle', 'Tactical Equipment', 'Less-Lethal Weapon', 'Forensic Equipment',
+    'Medical Supplies', 'Office Equipment', 'Other'
+  ];
 
   useEffect(() => {
-    fetchEquipment();
-  }, [currentPage, categoryFilter, searchTerm]);
+    fetchAuthorizedPools();
+  }, [categoryFilter, searchTerm]);
 
-  const fetchEquipment = async () => {
+  const fetchAuthorizedPools = async () => {
     try {
       setLoading(true);
-      const response = await officerAPI.getInventory({
-        page: currentPage,
-        limit: 12,
+      const response = await officerAPI.getAuthorizedEquipmentPools({
         category: categoryFilter,
-        search: searchTerm,
-        status: 'Available'
+        search: searchTerm
       });
-
+      
       if (response.data.success) {
-        setEquipment(response.data.data.equipment);
-        setCategories(response.data.data.categories || []);
-        setTotalPages(response.data.data.pagination.pages);
+        // Only show pools with available items
+        const availablePools = response.data.data.pools.filter(
+          pool => pool.availableCount > 0
+        );
+        setPools(availablePools);
       }
     } catch (error) {
-      toast.error('Failed to fetch equipment');
+      console.error('Fetch pools error:', error);
+      toast.error('Failed to fetch available equipment');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRequestEquipment = (equipmentItem) => {
-    setSelectedEquipment(equipmentItem);
+  const handleRequestEquipment = (pool) => {
+    setSelectedPool(pool);
     setShowRequestModal(true);
+    setRequestData({
+      purpose: '',
+      urgency: 'Normal',
+      expectedDuration: '',
+      notes: ''
+    });
+  };
+
+  const handleSubmitRequest = async (e) => {
+    e.preventDefault();
+    
+    if (!requestData.purpose.trim()) {
+      return toast.error('Purpose is required');
+    }
+
+    try {
+      const response = await officerAPI.requestEquipmentFromPool({
+        poolId: selectedPool._id,
+        poolName: selectedPool.poolName,
+        category: selectedPool.category,
+        model: selectedPool.model,
+        ...requestData
+      });
+
+      if (response.data.success) {
+        toast.success('Equipment request submitted successfully!');
+        setShowRequestModal(false);
+        setSelectedPool(null);
+        fetchAuthorizedPools();
+        if (onRequestSubmitted) {
+          onRequestSubmitted();
+        }
+      }
+    } catch (error) {
+      console.error('Submit request error:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to submit equipment request';
+      toast.error(errorMessage);
+    }
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setRequestData(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
   if (loading) {
     return (
-      /* UI/UX Enhancement: Styled by .loading-container */
       <div className="loading-container">
         <div className="spinner"></div>
         <p>Loading available equipment...</p>
@@ -65,247 +111,203 @@ const RequestEquipment = ({ onRequestSubmitted }) => {
 
   return (
     <div className="request-equipment">
-      {/* UI/UX Enhancement: Styled by .equipment-header & .search-filters */}
       <div className="equipment-header">
-        <div className="search-filters">
-          <input
-            type="text"
-            placeholder="Search equipment..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="form-control"
-          />
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="form-control"
-          >
-            <option value="">All Categories</option>
-            {categories.map(category => (
-              <option key={category} value={category}>{category}</option>
-            ))}
-          </select>
-        </div>
-        <div className="equipment-count">
-          {equipment.length} equipment available
-        </div>
+        <h2>Request Equipment</h2>
+        <p>Request equipment from authorized pools</p>
       </div>
 
-      {equipment.length === 0 ? (
-        /* UI/UX Enhancement: Styled by .no-data */
-        <div className="no-data">
-          <p>No equipment available for request.</p>
+      {/* Filters */}
+      <div className="equipment-filters">
+        <input
+          type="text"
+          placeholder="Search equipment pools..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="search-input"
+        />
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className="filter-select"
+        >
+          <option value="">All Categories</option>
+          {categories.map(cat => (
+            <option key={cat} value={cat}>{cat}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Equipment Pools Grid */}
+      {pools.length === 0 ? (
+        <div className="empty-state">
+          <p>No equipment available for your designation.</p>
+          <p>Contact your administrator if you need access to additional equipment.</p>
         </div>
       ) : (
-        <>
-          {/* UI/UX Enhancement: Styled by .equipment-grid */}
-          <div className="equipment-grid">
-            {equipment.map((item) => (
-              <EquipmentCard
-                key={item._id}
-                equipment={item}
-                onRequest={handleRequestEquipment}
-              />
-            ))}
-          </div>
+        <div className="equipment-grid">
+          {pools.map(pool => (
+            <div key={pool._id} className="equipment-card">
+              <div className="equipment-card-header">
+                <h3>{pool.poolName}</h3>
+                <span className={`badge badge-${
+                  pool.availableCount > 10 ? 'success' : 
+                  pool.availableCount > 5 ? 'warning' : 'error'
+                }`}>
+                  {pool.availableCount} Available
+                </span>
+              </div>
+              
+              <div className="equipment-card-body">
+                <div className="equipment-info">
+                  <div className="info-row">
+                    <span className="info-label">Category:</span>
+                    <span className="info-value">{pool.category}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-label">Model:</span>
+                    <span className="info-value">{pool.model}</span>
+                  </div>
+                  {pool.manufacturer && (
+                    <div className="info-row">
+                      <span className="info-label">Manufacturer:</span>
+                      <span className="info-value">{pool.manufacturer}</span>
+                    </div>
+                  )}
+                  <div className="info-row">
+                    <span className="info-label">Location:</span>
+                    <span className="info-value">{pool.location}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-label">Total in Pool:</span>
+                    <span className="info-value">{pool.totalQuantity}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-label">Currently Issued:</span>
+                    <span className="info-value">{pool.issuedCount}</span>
+                  </div>
+                </div>
+              </div>
 
-          {totalPages > 1 && (
-            /* UI/UX Enhancement: Styled by .pagination */
-            <div className="pagination">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-                className="btn btn-secondary"
-              >
-                Previous
-              </button>
-              <span>Page {currentPage} of {totalPages}</span>
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="btn btn-secondary"
-              >
-                Next
-              </button>
+              <div className="equipment-card-footer">
+                <button
+                  className="btn btn-primary btn-full-width"
+                  onClick={() => handleRequestEquipment(pool)}
+                  disabled={pool.availableCount === 0}
+                >
+                  {pool.availableCount === 0 ? 'Not Available' : 'Request Equipment'}
+                </button>
+              </div>
             </div>
-          )}
-        </>
+          ))}
+        </div>
       )}
 
-      {showRequestModal && selectedEquipment && (
-        <RequestModal
-          equipment={selectedEquipment}
-          onClose={() => {
-            setShowRequestModal(false);
-            setSelectedEquipment(null);
-          }}
-          onSuccess={() => {
-            fetchEquipment();
-            if (onRequestSubmitted) onRequestSubmitted();
-          }}
-        />
-      )}
-    </div>
-  );
-};
-
-/*
-  UI/UX Enhancement: This component is now styled by .equipment-card 
-  in the CSS file, including hover animations, structured content,
-  and themed buttons/badges.
-*/
-const EquipmentCard = ({ equipment, onRequest }) => {
-  return (
-    <div className="equipment-card">
-      <div className="equipment-info">
-        <h4>{equipment.name}</h4>
-        <p className="equipment-model">{equipment.model}</p>
-        <div className="equipment-details">
-          <span className="equipment-category">{equipment.category}</span>
-          <span className="equipment-serial">SN: {equipment.serialNumber}</span>
-        </div>
-        <div className="equipment-meta">
-          {/* UI/UX Enhancement: Styled by .condition-badge */}
-          <span className={`condition-badge condition-${equipment.condition.toLowerCase()}`}>
-            {equipment.condition}
-          </span>
-          <span className="location">{equipment.location}</span>
-        </div>
-      </div>
-      <div className="equipment-actions">
-        {/* UI/UX Enhancement: Styled by .btn */}
-        <button
-          onClick={() => onRequest(equipment)}
-          className="btn btn-primary btn-sm"
-        >
-          Request Equipment
-        </button>
-      </div>
-    </div>
-  );
-};
-
-/*
-  UI/UX Enhancement: This modal is now fully styled by the CSS:
-  - .modal-overlay, .modal-content, .modal-header
-  - .equipment-summary for the top section
-  - .form-group, .form-label, .form-control for inputs
-  - .form-row for the 2-column layout
-  - .modal-actions for the styled footer
-*/
-const RequestModal = ({ equipment, onClose, onSuccess }) => {
-  const [formData, setFormData] = useState({
-    reason: '',
-    priority: 'Medium',
-    expectedReturnDate: ''
-  });
-  const [loading, setLoading] = useState(false);
-
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      await officerAPI.createRequest({
-        equipmentId: equipment._id,
-        requestType: 'Issue',
-        ...formData
-      });
-      toast.success('Equipment request submitted successfully');
-      onSuccess();
-      onClose();
-    } catch (error) {
-      toast.error('Failed to submit request');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>Request Equipment</h3>
-          <button onClick={onClose} className="close-btn">&times;</button>
-        </div>
-
-        {/* UI/UX Enhancement: Styled by .equipment-summary */}
-        <div className="equipment-summary">
-          <h4>{equipment.name}</h4>
-          <p>{equipment.model} - {equipment.serialNumber}</p>
-          <p>Category: {equipment.category}</p>
-          <p>Location: {equipment.location}</p>
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Reason for Request</label>
-            <textarea
-              name="reason"
-              value={formData.reason}
-              onChange={handleChange}
-              className="form-control"
-              rows="3"
-              placeholder="Please explain why you need this equipment..."
-              required
-            />
-          </div>
-
-          {/* UI/UX Enhancement: Styled by .form-row */}
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">Priority</label>
-              <select
-                name="priority"
-                value={formData.priority}
-                onChange={handleChange}
-                className="form-control"
+      {/* Request Modal */}
+      {showRequestModal && selectedPool && (
+        <div className="modal-overlay" onClick={() => setShowRequestModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Request: {selectedPool.poolName}</h3>
+              <button 
+                className="close-button"
+                onClick={() => setShowRequestModal(false)}
               >
-                <option value="Low">Low</option>
-                <option value="Medium">Medium</option>
-                <option value="High">High</option>
-                <option value="Urgent">Urgent</option>
-              </select>
+                ×
+              </button>
             </div>
-            <div className="form-group">
-              <label className="form-label">Expected Return Date</label>
-              <input
-                type="date"
-                name="expectedReturnDate"
-                value={formData.expectedReturnDate}
-                onChange={handleChange}
-                className="form-control"
-                min={new Date().toISOString().split('T')[0]}
-              />
-            </div>
-          </div>
+            
+            <form onSubmit={handleSubmitRequest} className="modal-body">
+              <div className="form-section">
+                <h4>Equipment Details</h4>
+                <div className="equipment-summary">
+                  <div className="summary-row">
+                    <strong>Pool:</strong> {selectedPool.poolName}
+                  </div>
+                  <div className="summary-row">
+                    <strong>Category:</strong> {selectedPool.category}
+                  </div>
+                  <div className="summary-row">
+                    <strong>Model:</strong> {selectedPool.model}
+                  </div>
+                  <div className="summary-row">
+                    <strong>Available:</strong> {selectedPool.availableCount} items
+                  </div>
+                  <p className="note-text">
+                    An item will be automatically assigned from this pool upon approval.
+                  </p>
+                </div>
+              </div>
 
-          {/* UI/UX Enhancement: Styled by .modal-actions */}
-          <div className="modal-actions">
-            <button
-              type="button"
-              onClick={onClose}
-              className="btn btn-secondary"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={loading}
-            >
-              {loading ? 'Submitting...' : 'Submit Request'}
-            </button>
+              <div className="form-section">
+                <h4>Request Information</h4>
+                
+                <div className="form-group">
+                  <label>Purpose <span className="required">*</span></label>
+                  <textarea
+                    name="purpose"
+                    value={requestData.purpose}
+                    onChange={handleInputChange}
+                    placeholder="e.g., Patrol duty, Special assignment, Training exercise..."
+                    rows="3"
+                    required
+                  />
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Urgency <span className="required">*</span></label>
+                    <select
+                      name="urgency"
+                      value={requestData.urgency}
+                      onChange={handleInputChange}
+                      required
+                    >
+                      <option value="Normal">Normal</option>
+                      <option value="Urgent">Urgent</option>
+                      <option value="Emergency">Emergency</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Expected Duration</label>
+                    <input
+                      type="text"
+                      name="expectedDuration"
+                      value={requestData.expectedDuration}
+                      onChange={handleInputChange}
+                      placeholder="e.g., 7 days, 1 month"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Additional Notes</label>
+                  <textarea
+                    name="notes"
+                    value={requestData.notes}
+                    onChange={handleInputChange}
+                    placeholder="Any additional information..."
+                    rows="2"
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowRequestModal(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  Submit Request
+                </button>
+              </div>
+            </form>
           </div>
-        </form>
-      </div>
+        </div>
+      )}
     </div>
   );
 };

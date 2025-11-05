@@ -1,3 +1,4 @@
+
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
@@ -32,7 +33,7 @@ router.get('/dashboard', async (req, res) => {
       Equipment.countDocuments({ status: 'Issued' }),
       Request.countDocuments({ status: 'Pending' }),
       Request.find({ status: 'Pending' })
-        .populate('requestedBy', 'firstName lastName badgeNumber')
+        .populate('requestedBy', 'fullName officerId')
         .populate('equipmentId', 'name model serialNumber')
         .sort({ createdAt: -1 })
         .limit(5)
@@ -129,17 +130,36 @@ router.get('/users', async (req, res) => {
   }
 });
 
-// @route   POST /api/admin/users
-// @desc    Create new user (officer)
-// @access  Private (Admin only)
+
+// @route POST /api/admin/users
+// @desc Create new user (officer)
+// @access Private (Admin only)
 router.post('/users', [
-  body('username').isLength({ min: 3, max: 30 }).matches(/^[a-zA-Z0-9_-]+$/),
-  body('email').isEmail().normalizeEmail(),
-  body('password').isLength({ min: 6 }),
-  body('firstName').trim().isLength({ min: 1, max: 50 }),
-  body('lastName').trim().isLength({ min: 1, max: 50 }),
-  body('department').trim().isLength({ min: 1 }),
-  body('badgeNumber').trim().isLength({ min: 1 })
+  body('officerId')
+    .trim()
+    .isLength({ min: 12, max: 18 })
+    .withMessage('Officer ID must be 12-18 characters'),
+  body('fullName')
+    .trim()
+    .isLength({ min: 3, max: 100 })
+    .withMessage('Full name must be 3-100 characters'),
+  body('email')
+    .isEmail()
+    .withMessage('Must be a valid email'),
+  body('password')
+    .isLength({ min: 8, max: 8 })
+    .withMessage('Password must be exactly 8 characters'),
+  body('dateOfJoining')
+    .isISO8601()
+    .withMessage('Must be a valid date'),
+  body('rank')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Rank is required'),
+  body('designation')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Designation is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -151,29 +171,30 @@ router.post('/users', [
       });
     }
 
-    const { username, email, password, firstName, lastName, department, badgeNumber } = req.body;
+    const { officerId, fullName, email, password, dateOfJoining, rank, designation, role } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({
-      $or: [{ email }, { username }, { badgeNumber }]
+      $or: [{ email }, { officerId }]
     });
 
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'User with this email, username, or badge number already exists'
+        message: 'User with this email or officer ID already exists'
       });
     }
 
+    // Create new user
     const user = new User({
-      username,
+      officerId,
+      fullName,
       email,
       password,
-      firstName,
-      lastName,
-      department,
-      badgeNumber,
-      role: 'officer',
+      dateOfJoining,
+      rank,
+      designation,
+      role: role || 'officer',
       createdBy: req.user._id
     });
 
@@ -187,6 +208,21 @@ router.post('/users', [
 
   } catch (error) {
     console.error('Create user error:', error);
+    
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const errors = Object.keys(error.errors).map(key => ({
+        path: key,
+        msg: error.errors[key].message
+      }));
+      
+      return res.status(400).json({
+        success: false,
+        message: 'Validation errors',
+        errors
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: 'Server error creating user',
@@ -199,9 +235,9 @@ router.post('/users', [
 // @desc    Update user
 // @access  Private (Admin only)
 router.put('/users/:id', [
-  body('firstName').optional().trim().isLength({ min: 1, max: 50 }),
-  body('lastName').optional().trim().isLength({ min: 1, max: 50 }),
-  body('department').optional().trim().isLength({ min: 1 }),
+  body('fullName').optional().trim().isLength({ min: 3, max: 100 }),
+  body('rank').optional().trim().isLength({ min: 1 }),
+  body('designation').optional().trim().isLength({ min: 1 }),
   body('isActive').optional().isBoolean()
 ], async (req, res) => {
   try {
@@ -214,12 +250,12 @@ router.put('/users/:id', [
       });
     }
 
-    const { firstName, lastName, department, isActive } = req.body;
+    const { fullName, rank, designation, isActive } = req.body;
     const updates = {};
 
-    if (firstName !== undefined) updates.firstName = firstName;
-    if (lastName !== undefined) updates.lastName = lastName;
-    if (department !== undefined) updates.department = department;
+    if (fullName !== undefined) updates.fullName = fullName;
+    if (rank !== undefined) updates.rank = rank;
+    if (designation !== undefined) updates.designation = designation;
     if (isActive !== undefined) updates.isActive = isActive;
 
     const user = await User.findByIdAndUpdate(
@@ -269,9 +305,9 @@ router.get('/requests', async (req, res) => {
 
     const [requests, total] = await Promise.all([
       Request.find(query)
-        .populate('requestedBy', 'firstName lastName username badgeNumber')
+        .populate('requestedBy', 'fullName officerId email')
         .populate('equipmentId', 'name model serialNumber category')
-        .populate('processedBy', 'firstName lastName username')
+        .populate('processedBy', 'fullName officerId')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),

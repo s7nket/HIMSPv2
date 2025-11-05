@@ -47,6 +47,10 @@ const auth = async (req, res, next) => {
       });
     }
 
+    // After successful password check
+user.lastLogin = new Date();
+await user.save({ validateBeforeSave: false }); // Skip validation
+
     console.error('Auth middleware error:', error);
     res.status(500).json({ 
       success: false, 

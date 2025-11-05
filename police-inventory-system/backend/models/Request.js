@@ -13,8 +13,28 @@ const requestSchema = new mongoose.Schema({
   equipmentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Equipment',
-    required: true
+    required: false  // Changed to false for pool requests
   },
+  
+  // ========== NEW POOL FIELDS ==========
+  poolId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'EquipmentPool'
+  },
+  poolName: {
+    type: String,
+    trim: true
+  },
+  assignedEquipmentId: {
+    type: String,  // Stores unique ID like "GLK001"
+    trim: true
+  },
+  assignedFromPool: {
+    type: Boolean,
+    default: false
+  },
+  // ====================================
+  
   requestType: {
     type: String,
     enum: ['Issue', 'Return', 'Maintenance'],
@@ -94,6 +114,7 @@ const requestSchema = new mongoose.Schema({
 requestSchema.index({ requestId: 1 });
 requestSchema.index({ requestedBy: 1 });
 requestSchema.index({ equipmentId: 1 });
+requestSchema.index({ poolId: 1 });  // NEW INDEX
 requestSchema.index({ status: 1 });
 requestSchema.index({ requestType: 1 });
 requestSchema.index({ createdAt: -1 });
@@ -106,26 +127,21 @@ requestSchema.pre('validate', async function(next) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
-
     try {
-      // Find the last request of the day
       const lastRequest = await this.constructor.findOne({
         requestId: new RegExp(`^REQ-${year}${month}${day}`)
       }).sort({ requestId: -1 });
-
       let sequence = 1;
       if (lastRequest && lastRequest.requestId) {
-        const lastSequence = parseInt(lastRequest.requestId.split('-')[2]);
+        const lastSequence = parseInt(lastRequest.requestId.split('-'));
         if (!isNaN(lastSequence)) {
           sequence = lastSequence + 1;
         }
       }
-
       this.requestId = `REQ-${year}${month}${day}-${String(sequence).padStart(4, '0')}`;
       console.log('Generated requestId:', this.requestId);
     } catch (error) {
       console.error('Error generating requestId:', error);
-      // Fallback to timestamp-based ID
       this.requestId = `REQ-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     }
   }
@@ -152,7 +168,6 @@ requestSchema.methods.approve = function(adminId, notes) {
   this.processedDate = new Date();
   this.approvedDate = new Date();
   this.adminNotes = notes;
-
   return this.save();
 };
 
@@ -162,7 +177,6 @@ requestSchema.methods.reject = function(adminId, reason) {
   this.processedBy = adminId;
   this.processedDate = new Date();
   this.adminNotes = reason;
-
   return this.save();
 };
 
@@ -172,7 +186,6 @@ requestSchema.methods.complete = function(adminId, notes) {
   this.processedBy = adminId;
   this.completedDate = new Date();
   if (notes) this.adminNotes = notes;
-
   return this.save();
 };
 

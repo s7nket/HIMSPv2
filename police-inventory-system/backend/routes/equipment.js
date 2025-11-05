@@ -1,6 +1,9 @@
+
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const Equipment = require('../models/Equipment');
+const EquipmentPool = require('../models/EquipmentPool');
+const User = require('../models/User');
 const { auth } = require('../middleware/auth');
 const { adminOnly } = require('../middleware/roleCheck');
 
@@ -9,9 +12,475 @@ const router = express.Router();
 // Apply auth middleware to all routes
 router.use(auth);
 
-// @route   GET /api/equipment
-// @desc    Get all equipment with pagination and filters
-// @access  Private (Admin only)
+// ============================================
+// EQUIPMENT POOL ROUTES
+// ============================================
+
+// @route GET /api/equipment/pools
+// @desc Get all equipment pools with filters
+// @access Private (Admin only)
+router.get('/pools', adminOnly, async (req, res) => {
+  try {
+    const { category, designation, search } = req.query;
+    
+    const query = {
+      ...(category && { category }),
+      ...(designation && { authorizedDesignations: designation }),
+      ...(search && {
+        $or: [
+          { poolName: { $regex: search, $options: 'i' } },
+          { model: { $regex: search, $options: 'i' } },
+          { manufacturer: { $regex: search, $options: 'i' } }
+        ]
+      })
+    };
+    
+    const pools = await EquipmentPool.find(query)
+      .populate('addedBy', 'fullName officerId')
+      .sort({ poolName: 1 });
+    
+    pools.forEach(pool => pool.updateCounts());
+    
+    res.json({
+      success: true,
+      data: { pools }
+    });
+    
+  } catch (error) {
+    console.error('Get pools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error fetching equipment pools',
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
+    });
+  }
+});
+
+// @route GET /api/equipment/pools/by-designation
+// @desc Get equipment pools authorized for specific designation
+// @access Private
+router.get('/pools/by-designation', async (req, res) => {
+  try {
+    const designation = req.query.designation || req.user.designation;
+    
+    const pools = await EquipmentPool.find({
+      authorizedDesignations: designation
+    })
+    .select('poolName category model totalQuantity availableCount issuedCount items.uniqueId items.status')
+    .sort({ poolName: 1 });
+    
+    pools.forEach(pool => pool.updateCounts());
+    
+    res.json({
+      success: true,
+      data: { pools, designation }
+    });
+    
+  } catch (error) {
+    console.error('Get pools by designation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error fetching equipment pools'
+    });
+  }
+});
+
+// @route POST /api/equipment/pools
+// @desc Create new equipment pool
+// @access Private (Admin only)
+router.post('/pools', adminOnly, [
+  body('poolName').trim().isLength({ min: 1 }).withMessage('Pool name is required'),
+  body('category').isIn([
+    'Firearm', 'Ammunition', 'Protective Gear', 'Communication Device',
+    'Vehicle', 'Tactical Equipment', 'Less-Lethal Weapon', 'Forensic Equipment',
+    'Medical Supplies', 'Office Equipment', 'Other'
+  ]).withMessage('Valid category is required'),
+  body('model').trim().isLength({ min: 1 }).withMessage('Model is required'),
+  body('totalQuantity').isInt({ min: 1 }).withMessage('Total quantity must be at least 1'),
+  body('prefix').trim().isLength({ min: 2, max: 5 }).withMessage('Prefix must be 2-5 characters'),
+  body('authorizedDesignations').isArray({ min: 1 }).withMessage('At least one authorized designation is required'),
+  body('location').trim().isLength({ min: 1 }).withMessage('Location is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation errors',
+        errors: errors.array()
+      });
+    }
+    
+    const {
+      poolName, category, subCategory, model, manufacturer,
+      totalQuantity, prefix, authorizedDesignations, location,
+      purchaseDate, totalCost, supplier, notes
+    } = req.body;
+    
+    const pool = new EquipmentPool({
+      poolName,
+      category,
+      subCategory,
+      model,
+      manufacturer,
+      totalQuantity,
+      authorizedDesignations,
+      location,
+      purchaseDate: purchaseDate ? new Date(purchaseDate) : undefined,
+      totalCost,
+      supplier,
+      notes,
+      addedBy: req.user._id
+    });
+    
+    // Generate items with unique IDs
+    for (let i = 0; i < totalQuantity; i++) {
+      const num = (i + 1).toString().padStart(3, '0');
+      const uniqueId = `${prefix}${num}`;
+      
+      pool.items.push({
+        uniqueId,
+        status: 'Available',
+        condition: 'Excellent',
+        location
+      });
+    }
+    
+    pool.updateCounts();
+    await pool.save();
+    
+    const populatedPool = await EquipmentPool.findById(pool._id)
+      .populate('addedBy', 'fullName officerId');
+    
+    res.status(201).json({
+      success: true,
+      message: `Equipment pool created with ${totalQuantity} items`,
+      data: { pool: populatedPool }
+    });
+    
+  } catch (error) {
+    console.error('Create pool error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error creating equipment pool'
+    });
+  }
+});
+
+// @route GET /api/equipment/pools/:poolId
+// @desc Get specific pool details
+// @access Private
+router.get('/pools/:poolId', async (req, res) => {
+  try {
+    const pool = await EquipmentPool.findById(req.params.poolId)
+      .populate('addedBy', 'fullName officerId')
+      .populate('items.currentlyIssuedTo.userId', 'fullName officerId designation')
+      .populate('items.usageHistory.userId', 'fullName officerId designation');
+    
+    if (!pool) {
+      return res.status(404).json({
+        success: false,
+        message: 'Equipment pool not found'
+      });
+    }
+    
+    pool.updateCounts();
+    
+    res.json({
+      success: true,
+      data: { pool }
+    });
+    
+  } catch (error) {
+    console.error('Get pool details error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error fetching pool details'
+    });
+  }
+});
+
+// @route POST /api/equipment/pools/:poolId/issue
+// @desc Issue equipment from pool
+// @access Private (Admin only)
+router.post('/pools/:poolId/issue', adminOnly, [
+  body('userId').isMongoId().withMessage('Valid user ID is required'),
+  body('purpose').optional().trim()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation errors',
+        errors: errors.array()
+      });
+    }
+    
+    const { userId, purpose } = req.body;
+    
+    const pool = await EquipmentPool.findById(req.params.poolId);
+    if (!pool) {
+      return res.status(404).json({
+        success: false,
+        message: 'Equipment pool not found'
+      });
+    }
+    
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    const assignedItem = await pool.issueItem(
+      user._id,
+      user.officerId,
+      user.fullName,
+      user.designation,
+      purpose,
+      req.user._id
+    );
+    
+    res.json({
+      success: true,
+      message: 'Equipment issued successfully',
+      data: {
+        assignedItem: assignedItem.uniqueId,
+        issuedTo: `${user.fullName} (${user.officerId})`,
+        issuedDate: assignedItem.currentlyIssuedTo.issuedDate,
+        poolAvailableCount: pool.availableCount
+      }
+    });
+    
+  } catch (error) {
+    console.error('Issue equipment error:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Server error issuing equipment'
+    });
+  }
+});
+
+// @route POST /api/equipment/pools/:poolId/return
+// @desc Return equipment to pool
+// @access Private (Admin only)
+router.post('/pools/:poolId/return', adminOnly, [
+  body('uniqueId').trim().isLength({ min: 1 }).withMessage('Unique ID is required'),
+  body('condition').isIn(['Excellent', 'Good', 'Fair', 'Poor']).withMessage('Valid condition is required'),
+  body('remarks').optional().trim()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation errors',
+        errors: errors.array()
+      });
+    }
+    
+    const { uniqueId, condition, remarks } = req.body;
+    
+    const pool = await EquipmentPool.findById(req.params.poolId);
+    if (!pool) {
+      return res.status(404).json({
+        success: false,
+        message: 'Equipment pool not found'
+      });
+    }
+    
+    const returnedItem = await pool.returnItem(
+      uniqueId,
+      condition,
+      remarks,
+      req.user._id
+    );
+    
+    res.json({
+      success: true,
+      message: 'Equipment returned successfully',
+      data: {
+        uniqueId: returnedItem.uniqueId,
+        daysUsed: returnedItem.usageHistory[returnedItem.usageHistory.length - 1].daysUsed,
+        condition: returnedItem.condition,
+        poolAvailableCount: pool.availableCount
+      }
+    });
+    
+  } catch (error) {
+    console.error('Return equipment error:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Server error returning equipment'
+    });
+  }
+});
+
+// @route GET /api/equipment/pools/:poolId/items/:uniqueId/history
+// @desc Get complete history of specific item
+// @access Private
+router.get('/pools/:poolId/items/:uniqueId/history', async (req, res) => {
+  try {
+    const pool = await EquipmentPool.findById(req.params.poolId)
+      .populate('items.usageHistory.userId', 'fullName officerId designation')
+      .populate('items.usageHistory.issuedBy', 'fullName officerId')
+      .populate('items.usageHistory.returnedTo', 'fullName officerId');
+    
+    if (!pool) {
+      return res.status(404).json({
+        success: false,
+        message: 'Equipment pool not found'
+      });
+    }
+    
+    const item = pool.findItemByUniqueId(req.params.uniqueId);
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: 'Item not found in pool'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        poolName: pool.poolName,
+        uniqueId: item.uniqueId,
+        currentStatus: item.status,
+        currentCondition: item.condition,
+        usageHistory: item.usageHistory,
+        maintenanceHistory: item.maintenanceHistory
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get item history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error fetching item history'
+    });
+  }
+});
+
+// @route GET /api/equipment/my-equipment-history
+// @desc Get equipment history for logged-in officer
+// @access Private
+router.get('/my-equipment-history', async (req, res) => {
+  try {
+    const pools = await EquipmentPool.find({
+      'items.usageHistory.officerId': req.user.officerId
+    })
+    .select('poolName category model items');
+    
+    const myHistory = pools.map(pool => {
+      const myItems = pool.items
+        .filter(item => 
+          item.usageHistory.some(h => h.officerId === req.user.officerId)
+        )
+        .map(item => ({
+          uniqueId: item.uniqueId,
+          currentStatus: item.status,
+          myUsage: item.usageHistory.filter(h => h.officerId === req.user.officerId)
+        }));
+      
+      return {
+        poolName: pool.poolName,
+        category: pool.category,
+        model: pool.model,
+        itemsUsed: myItems
+      };
+    }).filter(pool => pool.itemsUsed.length > 0);
+    
+    res.json({
+      success: true,
+      data: { history: myHistory }
+    });
+    
+  } catch (error) {
+    console.error('Get my equipment history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error fetching equipment history'
+    });
+  }
+});
+
+// @route GET /api/equipment/currently-issued
+// @desc Get all currently issued equipment
+// @access Private (Admin only)
+router.get('/currently-issued', adminOnly, async (req, res) => {
+  try {
+    const pools = await EquipmentPool.find()
+      .populate('items.currentlyIssuedTo.userId', 'fullName officerId designation')
+      .select('poolName category model items');
+    
+    const issuedItems = [];
+    
+    pools.forEach(pool => {
+      pool.items.forEach(item => {
+        if (item.status === 'Issued' && item.currentlyIssuedTo) {
+          issuedItems.push({
+            poolName: pool.poolName,
+            uniqueId: item.uniqueId,
+            category: pool.category,
+            model: pool.model,
+            issuedTo: item.currentlyIssuedTo
+          });
+        }
+      });
+    });
+    
+    res.json({
+      success: true,
+      data: { 
+        issuedItems,
+        total: issuedItems.length
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get currently issued equipment error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error fetching issued equipment'
+    });
+  }
+});
+
+// @route DELETE /api/equipment/pools/:poolId
+// @desc Delete equipment pool
+// @access Private (Admin only)
+router.delete('/pools/:poolId', adminOnly, async (req, res) => {
+  try {
+    const pool = await EquipmentPool.findByIdAndDelete(req.params.poolId);
+    
+    if (!pool) {
+      return res.status(404).json({
+        success: false,
+        message: 'Equipment pool not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Equipment pool deleted successfully'
+    });
+    
+  } catch (error) {
+    console.error('Delete pool error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error deleting equipment pool'
+    });
+  }
+});
+
+// @route GET /api/equipment
+// @desc Get all equipment with pagination and filters
+// @access Private (Admin only)
 router.get('/', adminOnly, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -36,8 +505,8 @@ router.get('/', adminOnly, async (req, res) => {
 
     const [equipment, total, categories, statusCounts] = await Promise.all([
       Equipment.find(query)
-        .populate('issuedTo.userId', 'firstName lastName badgeNumber')
-        .populate('addedBy', 'firstName lastName')
+        .populate('issuedTo.userId', 'fullName officerId')
+        .populate('addedBy', 'fullName officerId')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),
@@ -62,334 +531,11 @@ router.get('/', adminOnly, async (req, res) => {
         }
       }
     });
-
   } catch (error) {
     console.error('Get equipment error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error fetching equipment',
-      ...(process.env.NODE_ENV === 'development' && { error: error.message })
-    });
-  }
-});
-
-// @route   POST /api/equipment
-// @desc    Add new equipment
-// @access  Private (Admin only)
-router.post('/', adminOnly, [
-  body('name').trim().isLength({ min: 1, max: 100 }).withMessage('Name is required and cannot exceed 100 characters'),
-  body('category').isIn([
-    'Weapons', 'Communication', 'Protective Gear', 'Vehicles', 
-    'Surveillance', 'Forensic Equipment', 'Medical Supplies', 'Office Equipment', 'Other'
-  ]).withMessage('Valid category is required'),
-  body('model').trim().isLength({ min: 1 }).withMessage('Model is required'),
-  body('serialNumber').trim().isLength({ min: 1 }).withMessage('Serial number is required'),
-  body('manufacturer').trim().isLength({ min: 1 }).withMessage('Manufacturer is required'),
-  body('purchaseDate').isISO8601().withMessage('Valid purchase date is required'),
-  body('cost').isNumeric({ min: 0 }).withMessage('Valid cost is required'),
-  body('location').trim().isLength({ min: 1 }).withMessage('Location is required'),
-  body('condition').optional().isIn(['Excellent', 'Good', 'Fair', 'Poor', 'Out of Service']),
-  body('notes').optional().isLength({ max: 500 })
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation errors',
-        errors: errors.array()
-      });
-    }
-
-    const {
-      name, category, model, serialNumber, manufacturer, purchaseDate,
-      cost, location, condition, notes, specifications, warrantyInfo
-    } = req.body;
-
-    // Check if equipment with same serial number exists
-    const existingEquipment = await Equipment.findOne({ serialNumber });
-    if (existingEquipment) {
-      return res.status(400).json({
-        success: false,
-        message: 'Equipment with this serial number already exists'
-      });
-    }
-
-    const equipment = new Equipment({
-      name,
-      category,
-      model,
-      serialNumber,
-      manufacturer,
-      purchaseDate: new Date(purchaseDate),
-      cost,
-      location,
-      condition: condition || 'Good',
-      notes,
-      specifications: specifications || {},
-      warrantyInfo: warrantyInfo || {},
-      addedBy: req.user._id
-    });
-
-    await equipment.save();
-
-    const populatedEquipment = await Equipment.findById(equipment._id)
-      .populate('addedBy', 'firstName lastName');
-
-    res.status(201).json({
-      success: true,
-      message: 'Equipment added successfully',
-      data: { equipment: populatedEquipment }
-    });
-
-  } catch (error) {
-    console.error('Add equipment error:', error);
-
-    if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: 'Equipment with this serial number already exists'
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Server error adding equipment',
-      ...(process.env.NODE_ENV === 'development' && { error: error.message })
-    });
-  }
-});
-
-// @route   GET /api/equipment/:id
-// @desc    Get specific equipment details
-// @access  Private (Admin only)
-router.get('/:id', adminOnly, async (req, res) => {
-  try {
-    const equipment = await Equipment.findById(req.params.id)
-      .populate('issuedTo.userId', 'firstName lastName badgeNumber')
-      .populate('addedBy', 'firstName lastName')
-      .populate('lastModifiedBy', 'firstName lastName');
-
-    if (!equipment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Equipment not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: { equipment }
-    });
-
-  } catch (error) {
-    console.error('Get equipment details error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error fetching equipment details',
-      ...(process.env.NODE_ENV === 'development' && { error: error.message })
-    });
-  }
-});
-
-// @route   PUT /api/equipment/:id
-// @desc    Update equipment
-// @access  Private (Admin only)
-router.put('/:id', adminOnly, [
-  body('name').optional().trim().isLength({ min: 1, max: 100 }),
-  body('category').optional().isIn([
-    'Weapons', 'Communication', 'Protective Gear', 'Vehicles', 
-    'Surveillance', 'Forensic Equipment', 'Medical Supplies', 'Office Equipment', 'Other'
-  ]),
-  body('model').optional().trim().isLength({ min: 1 }),
-  body('manufacturer').optional().trim().isLength({ min: 1 }),
-  body('cost').optional().isNumeric({ min: 0 }),
-  body('location').optional().trim().isLength({ min: 1 }),
-  body('condition').optional().isIn(['Excellent', 'Good', 'Fair', 'Poor', 'Out of Service']),
-  body('status').optional().isIn(['Available', 'Issued', 'Under Maintenance', 'Retired']),
-  body('notes').optional().isLength({ max: 500 })
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation errors',
-        errors: errors.array()
-      });
-    }
-
-    const equipment = await Equipment.findById(req.params.id);
-    if (!equipment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Equipment not found'
-      });
-    }
-
-    const {
-      name, category, model, manufacturer, cost, location,
-      condition, status, notes, specifications, warrantyInfo
-    } = req.body;
-
-    const updates = {
-      ...(name !== undefined && { name }),
-      ...(category !== undefined && { category }),
-      ...(model !== undefined && { model }),
-      ...(manufacturer !== undefined && { manufacturer }),
-      ...(cost !== undefined && { cost }),
-      ...(location !== undefined && { location }),
-      ...(condition !== undefined && { condition }),
-      ...(status !== undefined && { status }),
-      ...(notes !== undefined && { notes }),
-      ...(specifications !== undefined && { specifications }),
-      ...(warrantyInfo !== undefined && { warrantyInfo }),
-      lastModifiedBy: req.user._id
-    };
-
-    const updatedEquipment = await Equipment.findByIdAndUpdate(
-      req.params.id,
-      updates,
-      { new: true, runValidators: true }
-    )
-    .populate('issuedTo.userId', 'firstName lastName badgeNumber')
-    .populate('addedBy', 'firstName lastName')
-    .populate('lastModifiedBy', 'firstName lastName');
-
-    res.json({
-      success: true,
-      message: 'Equipment updated successfully',
-      data: { equipment: updatedEquipment }
-    });
-
-  } catch (error) {
-    console.error('Update equipment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error updating equipment',
-      ...(process.env.NODE_ENV === 'development' && { error: error.message })
-    });
-  }
-});
-
-// @route   DELETE /api/equipment/:id
-// @desc    Delete equipment
-// @access  Private (Admin only)
-router.delete('/:id', adminOnly, async (req, res) => {
-  try {
-    const equipment = await Equipment.findById(req.params.id);
-    if (!equipment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Equipment not found'
-      });
-    }
-
-    // Check if equipment is currently issued
-    if (equipment.status === 'Issued') {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot delete equipment that is currently issued'
-      });
-    }
-
-    await Equipment.findByIdAndDelete(req.params.id);
-
-    res.json({
-      success: true,
-      message: 'Equipment deleted successfully'
-    });
-
-  } catch (error) {
-    console.error('Delete equipment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error deleting equipment',
-      ...(process.env.NODE_ENV === 'development' && { error: error.message })
-    });
-  }
-});
-
-// @route   PUT /api/equipment/:id/issue
-// @desc    Issue equipment to user
-// @access  Private (Admin only)
-router.put('/:id/issue', adminOnly, [
-  body('userId').isMongoId().withMessage('Valid user ID is required'),
-  body('expectedReturnDate').optional().isISO8601().withMessage('Valid return date required')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation errors',
-        errors: errors.array()
-      });
-    }
-
-    const { userId, expectedReturnDate } = req.body;
-
-    const equipment = await Equipment.findById(req.params.id);
-    if (!equipment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Equipment not found'
-      });
-    }
-
-    await equipment.issueToUser(
-      userId,
-      expectedReturnDate ? new Date(expectedReturnDate) : undefined
-    );
-
-    const updatedEquipment = await Equipment.findById(req.params.id)
-      .populate('issuedTo.userId', 'firstName lastName badgeNumber');
-
-    res.json({
-      success: true,
-      message: 'Equipment issued successfully',
-      data: { equipment: updatedEquipment }
-    });
-
-  } catch (error) {
-    console.error('Issue equipment error:', error);
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Server error issuing equipment',
-      ...(process.env.NODE_ENV === 'development' && { error: error.message })
-    });
-  }
-});
-
-// @route   PUT /api/equipment/:id/return
-// @desc    Return equipment from user
-// @access  Private (Admin only)
-router.put('/:id/return', adminOnly, async (req, res) => {
-  try {
-    const equipment = await Equipment.findById(req.params.id);
-    if (!equipment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Equipment not found'
-      });
-    }
-
-    await equipment.returnFromUser();
-
-    const updatedEquipment = await Equipment.findById(req.params.id);
-
-    res.json({
-      success: true,
-      message: 'Equipment returned successfully',
-      data: { equipment: updatedEquipment }
-    });
-
-  } catch (error) {
-    console.error('Return equipment error:', error);
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Server error returning equipment',
-      ...(process.env.NODE_ENV === 'development' && { error: error.message })
+      message: 'Server error fetching equipment'
     });
   }
 });

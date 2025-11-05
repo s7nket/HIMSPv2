@@ -199,14 +199,79 @@ export const officerAPI = {
   getEquipmentDetails: (id) => api.get(`/officer/equipment/${id}`)
 };
 
+
+// ============================================
+// EQUIPMENT POOL API ENDPOINTS (ADD TO api.js)
+// ============================================
+
+// Add these to your equipmentAPI object in utils/api.js
+
 export const equipmentAPI = {
-  getEquipment: (params) => api.get('/equipment', { params }),
-  createEquipment: (equipmentData) => api.post('/equipment', equipmentData),
-  getEquipmentById: (id) => api.get(`/equipment/${id}`),
-  updateEquipment: (id, equipmentData) => api.put(`/equipment/${id}`, equipmentData),
-  deleteEquipment: (id) => api.delete(`/equipment/${id}`),
-  issueEquipment: (id, data) => api.put(`/equipment/${id}/issue`, data),
-  returnEquipment: (id) => api.put(`/equipment/${id}/return`)
+  // ... existing equipment methods ...
+
+  // ========== EQUIPMENT POOL METHODS ==========
+
+  // Get all equipment pools
+  getEquipmentPools: (params) => {
+    console.log('🔄 GET /equipment/pools', params);
+    return api.get('/equipment/pools', { params }); // <-- CORRECT
+  },
+
+  // Get equipment pools by designation
+  getEquipmentPoolsByDesignation: (designation) => {
+    console.log('🔄 GET /equipment/pools/by-designation', { designation });
+    return api.get('/equipment/pools/by-designation', { // <-- CORRECT
+      params: { designation }
+    });
+  },
+
+  // Create new equipment pool
+  createEquipmentPool: (poolData) => {
+    console.log('🔄 POST /equipment/pools', poolData);
+    return api.post('/equipment/pools', poolData); // <-- CORRECT
+  },
+
+  // Get specific pool details
+  getEquipmentPoolDetails: (poolId) => {
+    console.log(`🔄 GET /equipment/pools/${poolId}`);
+    return api.get(`/equipment/pools/${poolId}`); // <-- CORRECT
+  },
+
+  // Issue equipment from pool
+  issueEquipmentFromPool: (poolId, data) => {
+    console.log(`🔄 POST /equipment/pools/${poolId}/issue`, data);
+    return api.post(`/equipment/pools/${poolId}/issue`, data); // <-- CORRECT
+  },
+
+  // Return equipment to pool
+  returnEquipmentToPool: (poolId, data) => {
+    console.log(`🔄 POST /equipment/pools/${poolId}/return`, data);
+    return api.post(`/equipment/pools/${poolId}/return`, data); // <-- CORRECT
+  },
+
+  // Get item history
+  getItemHistory: (poolId, uniqueId) => {
+    console.log(`🔄 GET /equipment/pools/${poolId}/items/${uniqueId}/history`);
+    return api.get(`/equipment/pools/${poolId}/items/${uniqueId}/history`); // <-- CORRECT
+  },
+
+  // Get my equipment history
+  getMyEquipmentHistory: () => {
+    console.log('🔄 GET /equipment/my-equipment-history');
+    return api.get('/equipment/my-equipment-history'); // <-- CORRECT
+  },
+
+  // Get currently issued equipment
+  getCurrentlyIssuedEquipment: () => {
+    console.log('🔄 GET /equipment/currently-issued');
+    return api.get('/equipment/currently-issued'); // <-- CORRECT
+  },
+
+  // Delete equipment pool
+  deleteEquipmentPool: (poolId) => {
+    console.log(`🔄 DELETE /equipment/pools/${poolId}`);
+    return api.delete(`/equipment/pools/${poolId}`); // <-- CORRECT
+  }
 };
 
 // Health check function
@@ -287,5 +352,7 @@ export const getStatusBadgeClass = (status) => {
 
   return statusClasses[status] || 'badge-secondary';
 };
+
+
 
 export default api;

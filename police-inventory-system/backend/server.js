@@ -19,22 +19,6 @@ app.set('trust proxy', 1);
 // Security middleware
 app.use(helmet());
 
-// DISABLE RATE LIMITING FOR DEVELOPMENT
-// Uncomment the lines below when you want to re-enable rate limiting in production
-
-/*
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Very high limit
-  message: {
-    error: 'Too many requests from this IP, please try again later.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: () => process.env.NODE_ENV === 'development' // Skip in development
-});
-app.use(limiter);
-*/
 
 console.log('⚠️  RATE LIMITING DISABLED FOR DEVELOPMENT');
 
