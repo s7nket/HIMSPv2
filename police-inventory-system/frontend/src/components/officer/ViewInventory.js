@@ -16,15 +16,14 @@ const ViewInventory = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [categories, setCategories] = useState([]);
-  const [selectedEquipment, setSelectedEquipment] = useState(null);
+  const [selectedPool, setSelectedPool] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
 
   useEffect(() => {
     fetchEquipment();
-  }, [currentPage, categoryFilter, statusFilter, searchTerm]);
+  }, [currentPage, categoryFilter, searchTerm]);
 
   const fetchEquipment = async () => {
     try {
@@ -33,31 +32,30 @@ const ViewInventory = () => {
         page: currentPage,
         limit: 15,
         category: categoryFilter,
-        status: statusFilter,
         search: searchTerm
       });
 
       if (response.data.success) {
-        setEquipment(response.data.data.equipment);
+        setEquipment(response.data.data.equipment); // 'equipment' is now pools
         setCategories(response.data.data.categories || []);
         setTotalPages(response.data.data.pagination.pages);
       }
     } catch (error) {
-      toast.error('Failed to fetch equipment');
+      toast.error('Failed to fetch equipment pools');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleViewDetails = async (equipmentId) => {
+  const handleViewDetails = async (poolId) => {
     try {
-      const response = await officerAPI.getEquipmentDetails(equipmentId);
+      const response = await officerAPI.getEquipmentDetails(poolId);
       if (response.data.success) {
-        setSelectedEquipment(response.data.data.equipment);
+        setSelectedPool(response.data.data.equipment); // 'equipment' is now pool
         setShowDetailsModal(true);
       }
     } catch (error) {
-      toast.error('Failed to fetch equipment details');
+      toast.error('Failed to fetch equipment pool details');
     }
   };
 
@@ -66,7 +64,7 @@ const ViewInventory = () => {
       /* UI/UX Enhancement: Styled by .loading-container */
       <div className="loading-container">
         <div className="spinner"></div>
-        <p>Loading inventory...</p>
+        <p>Loading authorized equipment pools...</p>
       </div>
     );
   }
@@ -78,7 +76,7 @@ const ViewInventory = () => {
         <div className="search-filters">
           <input
             type="text"
-            placeholder="Search equipment..."
+            placeholder="Search equipment pools..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="form-control"
@@ -93,27 +91,17 @@ const ViewInventory = () => {
               <option key={category} value={category}>{category}</option>
             ))}
           </select>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="form-control"
-          >
-            <option value="">All Status</option>
-            <option value="Available">Available</option>
-            <option value="Issued">Issued</option>
-            <option value="Under Maintenance">Under Maintenance</option>
-            <option value="Retired">Retired</option>
-          </select>
+          {/* Removed status filter as we are viewing pools, not individual items */}
         </div>
         <div className="inventory-stats">
-          {equipment.length} items found
+          {equipment.length} pools found
         </div>
       </div>
 
       {equipment.length === 0 ? (
         /* UI/UX Enhancement: Styled by .no-data */
         <div className="no-data">
-          <p>No equipment found matching your criteria.</p>
+          <p>No equipment pools found matching your criteria or authorized for your designation.</p>
         </div>
       ) : (
         <>
@@ -122,56 +110,41 @@ const ViewInventory = () => {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Equipment</th>
+                  <th>Pool Name</th>
                   <th>Category</th>
-                  <th>Serial Number</th>
-                  <th>Status</th>
-                  <th>Condition</th>
+                  <th>Model</th>
+                  <th>Total Quantity</th>
+                  <th>Available</th>
+                  <th>Issued</th>
                   <th>Location</th>
-                  <th>Issued To</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {equipment.map((item) => (
-                  <tr key={item._id}>
+                {equipment.map((pool) => (
+                  <tr key={pool._id}>
                     <td>
-                      <div>
-                        <strong>{item.name}</strong>
-                        <br />
-                        <small>{item.model}</small>
-                      </div>
+                      <strong>{pool.poolName}</strong>
+                      <br />
+                      <small>{pool.manufacturer}</small>
                     </td>
-                    <td>{item.category}</td>
-                    <td>{item.serialNumber}</td>
+                    <td>{pool.category}</td>
+                    <td>{pool.model}</td>
+                    <td>{pool.totalQuantity}</td>
                     <td>
-                      {/* UI/UX Enhancement: Styled by .badge */ }
-                      <span className={`badge badge-${getStatusBadgeClass(item.status)}`}>
-                        {item.status}
+                      <span className={`badge badge-${
+                        pool.availableCount > 10 ? 'success' :
+                        pool.availableCount > 5 ? 'warning' : 'danger'
+                      }`}>
+                        {pool.availableCount}
                       </span>
                     </td>
-                    <td>
-                      {/* UI/UX Enhancement: Styled by .badge */ }
-                      <span className={`badge badge-${getConditionBadgeClass(item.condition)}`}>
-                        {item.condition}
-                      </span>
-                    </td>
-                    <td>{item.location}</td>
-                    <td>
-                      {item.issuedTo?.userId ? (
-                        <div>
-                          <strong>{item.issuedTo.userId.firstName} {item.issuedTo.userId.lastName}</strong>
-                          <br />
-                          <small>Badge: {item.issuedTo.userId.badgeNumber}</small>
-                        </div>
-                      ) : (
-                        'Not Issued'
-                      )}
-                    </td>
+                    <td>{pool.issuedCount}</td>
+                    <td>{pool.location}</td>
                     <td>
                       {/* UI/UX Enhancement: Styled by .btn */ }
                       <button
-                        onClick={() => handleViewDetails(item._id)}
+                        onClick={() => handleViewDetails(pool._id)}
                         className="btn btn-info btn-sm"
                       >
                         View Details
@@ -206,12 +179,12 @@ const ViewInventory = () => {
         </>
       )}
 
-      {showDetailsModal && selectedEquipment && (
+      {showDetailsModal && selectedPool && (
         <EquipmentDetailsModal
-          equipment={selectedEquipment}
+          pool={selectedPool}
           onClose={() => {
             setShowDetailsModal(false);
-            setSelectedEquipment(null);
+            setSelectedPool(null);
           }}
         />
       )}
@@ -225,119 +198,101 @@ const ViewInventory = () => {
   - .detail-section (for the gray info boxes)
   - .detail-grid (for the 2-column layout)
 */
-const EquipmentDetailsModal = ({ equipment, onClose }) => {
+const EquipmentDetailsModal = ({ pool, onClose }) => {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content equipment-details-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h3>Equipment Details</h3>
+          <h3>Equipment Pool Details: {pool.poolName}</h3>
           <button onClick={onClose} className="close-btn">&times;</button>
         </div>
 
         <div className="equipment-details">
           <div className="detail-section">
-            <h4>Basic Information</h4>
+            <h4>Pool Information</h4>
             <div className="detail-grid">
               <div className="detail-item">
-                <strong>Name:</strong> {equipment.name}
+                <strong>Pool Name:</strong> {pool.poolName}
               </div>
               <div className="detail-item">
-                <strong>Model:</strong> {equipment.model}
+                <strong>Model:</strong> {pool.model}
               </div>
               <div className="detail-item">
-                <strong>Serial Number:</strong> {equipment.serialNumber}
+                <strong>Category:</strong> {pool.category}
               </div>
               <div className="detail-item">
-                <strong>Category:</strong> {equipment.category}
+                <strong>Manufacturer:</strong> {pool.manufacturer}
               </div>
               <div className="detail-item">
-                <strong>Manufacturer:</strong> {equipment.manufacturer}
+                <strong>Location:</strong> {pool.location}
               </div>
               <div className="detail-item">
-                <strong>Status:</strong> 
-                <span className={`badge badge-${getStatusBadgeClass(equipment.status)}`}>
-                  {equipment.status}
+                <strong>Total Quantity:</strong> {pool.totalQuantity}
+              </div>
+              <div className="detail-item">
+                <strong>Available Count:</strong>
+                <span className={`badge badge-${
+                  pool.availableCount > 10 ? 'success' :
+                  pool.availableCount > 5 ? 'warning' : 'danger'
+                }`}>
+                  {pool.availableCount}
                 </span>
               </div>
               <div className="detail-item">
-                <strong>Condition:</strong>
-                <span className={`badge badge-${getConditionBadgeClass(equipment.condition)}`}>
-                  {equipment.condition}
-                </span>
+                <strong>Issued Count:</strong> {pool.issuedCount}
               </div>
               <div className="detail-item">
-                <strong>Location:</strong> {equipment.location}
+                <strong>Maintenance Count:</strong> {pool.maintenanceCount}
+              </div>
+              <div className="detail-item">
+                <strong>Damaged Count:</strong> {pool.damagedCount}
               </div>
             </div>
           </div>
 
           <div className="detail-section">
-            <h4>Purchase Information</h4>
+            <h4>Authorization</h4>
             <div className="detail-grid">
-              <div className="detail-item">
-                <strong>Purchase Date:</strong> {new Date(equipment.purchaseDate).toLocaleDateString()}
-              </div>
-              <div className="detail-item">
-                <strong>Cost:</strong> ${equipment.cost}
-              </div>
-              <div className="detail-item">
-                <strong>Age:</strong> {equipment.age} years
+              <div className="detail-item full-width">
+                <strong>Authorized Designations:</strong>
+                <ul>
+                  {pool.authorizedDesignations.map(d => <li key={d}>{d}</li>)}
+                </ul>
               </div>
             </div>
           </div>
 
-          {equipment.issuedTo?.userId && (
-            <div className="detail-section">
-              <h4>Current Assignment</h4>
-              <div className="detail-grid">
-                <div className="detail-item">
-                  <strong>Issued To:</strong> {equipment.issuedTo.userId.firstName} {equipment.issuedTo.userId.lastName}
-                </div>
-                <div className="detail-item">
-                  <strong>Badge Number:</strong> {equipment.issuedTo.userId.badgeNumber}
-                </div>
-                <div className="detail-item">
-                  <strong>Issue Date:</strong> {new Date(equipment.issuedTo.issuedDate).toLocaleDateString()}
-                </div>
-                {equipment.issuedTo.expectedReturnDate && (
-                  <div className="detail-item">
-                    <strong>Expected Return:</strong> {new Date(equipment.issuedTo.expectedReturnDate).toLocaleDateString()}
-                  </div>
-                )}
+          <div className="detail-section">
+            <h4>Metadata</h4>
+            <div className="detail-grid">
+              <div className="detail-item">
+                <strong>Purchase Date:</strong> {pool.purchaseDate ? new Date(pool.purchaseDate).toLocaleDateString() : 'N/A'}
+              </div>
+              <div className="detail-item">
+                <strong>Total Cost:</strong> {pool.totalCost ? `$${pool.totalCost}` : 'N/A'}
+              </div>
+              <div className="detail-item">
+                <strong>Supplier:</strong> {pool.supplier || 'N/A'}
+              </div>
+              <div className="detail-item">
+                <strong>Added By:</strong> {pool.addedBy?.fullName} ({pool.addedBy?.officerId})
+              </div>
+              <div className="detail-item">
+                <strong>Last Modified:</strong> {pool.updatedAt ? new Date(pool.updatedAt).toLocaleDateString() : 'N/A'}
               </div>
             </div>
-          )}
+          </div>
 
-          {equipment.notes && (
+          {pool.notes && (
             <div className="detail-section">
               <h4>Notes</h4>
-              <p>{equipment.notes}</p>
+              <p>{pool.notes}</p>
             </div>
           )}
         </div>
       </div>
     </div>
   );
-};
-
-const getStatusBadgeClass = (status) => {
-  const classes = {
-    'Available': 'success',
-    'Issued': 'warning',
-    'Under Maintenance': 'info',
-    'Retired': 'danger'
-  };
-  return classes[status] || 'secondary';
-};
-
-const getConditionBadgeClass = (condition) => {
-  const classes = {
-    'Excellent': 'success',
-    'Good': 'info',
-    'Fair': 'warning',
-    'Poor': 'danger'
-  };
-  return classes[condition] || 'secondary';
 };
 
 export default ViewInventory;

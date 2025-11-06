@@ -273,7 +273,7 @@ router.get('/equipment/issued', officerOnly, async (req, res) => {
 });
 
 // @route   GET /api/officer/inventory
-// @desc    View available equipment inventory
+// @desc    View available equipment inventory (Equipment Pools authorized for officer)
 // @access  Private (Officer and Admin)
 router.get('/inventory', adminOrOfficer, async (req, res) => {
   try {
@@ -282,35 +282,39 @@ router.get('/inventory', adminOrOfficer, async (req, res) => {
     const skip = (page - 1) * limit;
     const category = req.query.category || '';
     const search = req.query.search || '';
-    const status = req.query.status || '';
-
+    
+    // Officer-specific filtering: only show pools authorized for their designation
+    const designation = req.user.designation;
+    
     const query = {
+      authorizedDesignations: designation, // Mongoose will check if array contains this string
       ...(category && { category }),
-      ...(status && { status }),
       ...(search && {
         $or: [
-          { name: { $regex: search, $options: 'i' } },
+          { poolName: { $regex: search, $options: 'i' } },
           { model: { $regex: search, $options: 'i' } },
-          { serialNumber: { $regex: search, $options: 'i' } },
           { manufacturer: { $regex: search, $options: 'i' } }
         ]
       })
     };
 
-    const [equipment, total, categories] = await Promise.all([
-      Equipment.find(query)
-        .populate('issuedTo.userId', 'fullName officerId')
-        .sort({ name: 1 })
+    const [pools, total, categories] = await Promise.all([
+      EquipmentPool.find(query)
+        .select('poolName category model manufacturer totalQuantity availableCount issuedCount location')
+        .sort({ poolName: 1 })
         .skip(skip)
         .limit(limit),
-      Equipment.countDocuments(query),
-      Equipment.distinct('category')
+      EquipmentPool.countDocuments(query),
+      EquipmentPool.distinct('category')
     ]);
+    
+    // Update counts for each pool before sending
+    pools.forEach(pool => pool.updateCounts());
 
     res.json({
       success: true,
       data: {
-        equipment,
+        equipment: pools, // Renaming to 'equipment' for frontend compatibility
         categories,
         pagination: {
           current: page,
@@ -332,25 +336,32 @@ router.get('/inventory', adminOrOfficer, async (req, res) => {
 });
 
 // @route   GET /api/officer/equipment/:id
-// @desc    Get specific equipment details
+// @desc    Get specific equipment pool details
 // @access  Private (Officer and Admin)
 router.get('/equipment/:id', adminOrOfficer, async (req, res) => {
   try {
-    const equipment = await Equipment.findById(req.params.id)
-      .populate('issuedTo.userId', 'fullName officerId')
+    const pool = await EquipmentPool.findById(req.params.id)
       .populate('addedBy', 'fullName officerId')
       .populate('lastModifiedBy', 'fullName officerId');
 
-    if (!equipment) {
+    if (!pool) {
       return res.status(404).json({
         success: false,
-        message: 'Equipment not found'
+        message: 'Equipment pool not found'
+      });
+    }
+    
+    // Ensure the officer is authorized to view this pool
+    if (!pool.authorizedDesignations.includes(req.user.designation)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to view this equipment pool'
       });
     }
 
     res.json({
       success: true,
-      data: { equipment }
+      data: { equipment: pool } // Renaming to 'equipment' for frontend compatibility
     });
 
   } catch (error) {
@@ -359,42 +370,6 @@ router.get('/equipment/:id', adminOrOfficer, async (req, res) => {
       success: false,
       message: 'Server error fetching equipment details',
       ...(process.env.NODE_ENV === 'development' && { error: error.message })
-    });
-  }
-});
-
-// Get equipment pools authorized for officer
-router.get('/equipment-pools/authorized', officerOnly, async (req, res) => {
-  try {
-    const { category, search } = req.query;
-    const designation = req.user.designation;
-    
-    const query = {
-      authorizedDesignations: designation,
-      ...(category && { category }),
-      ...(search && {
-        $or: [
-          { poolName: { $regex: search, $options: 'i' } },
-          { model: { $regex: search, $options: 'i' } }
-        ]
-      })
-    };
-    
-    const pools = await EquipmentPool.find(query)
-      .select('poolName category model manufacturer totalQuantity availableCount issuedCount location')
-      .sort({ poolName: 1 });
-    
-    pools.forEach(pool => pool.updateCounts());
-    
-    res.json({
-      success: true,
-      data: { pools, designation }
-    });
-  } catch (error) {
-    console.error('Get authorized pools error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error fetching authorized equipment pools'
     });
   }
 });

@@ -196,7 +196,11 @@ export const officerAPI = {
   cancelRequest: (id) => api.put(`/officer/requests/${id}/cancel`),
   getIssuedEquipment: () => api.get('/officer/equipment/issued'),
   getInventory: (params) => api.get('/officer/inventory', { params }),
-  getEquipmentDetails: (id) => api.get(`/officer/equipment/${id}`)
+  getEquipmentDetails: (id) => api.get(`/officer/equipment/${id}`),
+  getAuthorizedEquipmentPools: (params) => {
+    console.log('🔄 GET /equipment/authorized-pools', params);
+    return api.get('/equipment/authorized-pools', { params });
+  }
 };
 
 

@@ -56,6 +56,46 @@ router.get('/pools', adminOnly, async (req, res) => {
   }
 });
 
+// @route GET /api/equipment/authorized-pools
+// @desc Get equipment pools authorized for the logged-in officer
+// @access Private
+router.get('/authorized-pools', async (req, res) => {
+  try {
+    const { category, search } = req.query;
+    const designation = req.user.designation;
+    
+    const query = {
+      authorizedDesignations: designation,
+      ...(category && { category }),
+      ...(search && {
+        $or: [
+          { poolName: { $regex: search, $options: 'i' } },
+          { model: { $regex: search, $options: 'i' } },
+          { manufacturer: { $regex: search, $options: 'i' } }
+        ]
+      })
+    };
+    
+    const pools = await EquipmentPool.find(query)
+      .select('poolName category model totalQuantity availableCount issuedCount')
+      .sort({ poolName: 1 });
+    
+    pools.forEach(pool => pool.updateCounts());
+    
+    res.json({
+      success: true,
+      data: { pools, designation }
+    });
+    
+  } catch (error) {
+    console.error('Get authorized pools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error fetching authorized equipment pools'
+    });
+  }
+});
+
 // @route GET /api/equipment/pools/by-designation
 // @desc Get equipment pools authorized for specific designation
 // @access Private

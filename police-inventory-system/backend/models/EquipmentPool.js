@@ -253,10 +253,11 @@ equipmentPoolSchema.methods.generateUniqueIds = function(prefix, startFrom, coun
 
 // Method to update counts
 equipmentPoolSchema.methods.updateCounts = function() {
-  this.availableCount = this.items.filter(item => item.status === 'Available').length;
-  this.issuedCount = this.items.filter(item => item.status === 'Issued').length;
-  this.maintenanceCount = this.items.filter(item => item.status === 'Maintenance').length;
-  this.damagedCount = this.items.filter(item => item.status === 'Damaged').length;
+  const items = this.items || [];
+  this.availableCount = items.filter(item => item.status === 'Available').length;
+  this.issuedCount = items.filter(item => item.status === 'Issued').length;
+  this.maintenanceCount = items.filter(item => item.status === 'Maintenance').length;
+  this.damagedCount = items.filter(item => item.status === 'Damaged').length;
 };
 
 // Method to get next available item
